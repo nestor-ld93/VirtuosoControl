@@ -1570,18 +1570,26 @@ class VirtuosoGUI(QMainWindow):
 
     # ─── LED del micrófono ─────────────────────────────────────────
 
-
-
     def do_keep_alive(self):
         if not self._hid_connected:
             return
-        # Check if the headset is actually responding (not just the dongle)
-        if not self.ctrl.is_headset_alive():
+
+        # This sequence ensures that the connection is not lost after 5 minutes.
+        try:
+            # 1. Send the heartbeat first proactively
+            self.ctrl.send_heartbeat()
+
+            # 2. Refresh RGB
+            self.apply_rgb()
+
+            # 3. Check if the headset is actually responding (not just the dongle)
+            if not self.ctrl.is_headset_alive():
+                self._on_connection_lost()
+                return
+
+        except Exception:
+            # If any error occurs in the HID communication, we safely disconnect.
             self._on_connection_lost()
-            return
-        # Headset is alive — send heartbeat and refresh RGB
-        self.ctrl.send_heartbeat()
-        self.apply_rgb()
 
     # ─── Iluminación RGB ─────────────────────────────────────────────
 
