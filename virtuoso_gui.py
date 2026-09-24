@@ -15,6 +15,7 @@ Features:
 import sys
 import os
 import math
+import time
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QSlider, QLabel,
                              QFrame, QSystemTrayIcon, QMenu, QCheckBox,
@@ -1582,13 +1583,25 @@ class VirtuosoGUI(QMainWindow):
             # 2. Refresh RGB
             self.apply_rgb()
 
-            # 3. Check if the headset is actually responding (not just the dongle)
-            if not self.ctrl.is_headset_alive():
+            # 3. Allow a brief pause (100ms) for the dongle to process the previous steps.
+            time.sleep(0.1)
+
+            # 4. Robust verification (up to 3 attempts if the dongle is busy)
+            headset_alive = False
+            for _ in range(3):
+                if self.ctrl.is_headset_alive():
+                    headset_alive = True
+                    break
+                # If it returned a false negative, we wait another 150ms before querying again.
+                time.sleep(0.15)
+
+            # If it still returns "False" after the 3 spaced-out attempts, then it has indeed disconnected.
+            if not headset_alive:
                 self._on_connection_lost()
                 return
 
         except Exception:
-            # If any error occurs in the HID communication, we safely disconnect.
+            # If any error occurs in the HID communication, safely disconnect.
             self._on_connection_lost()
 
     # ─── Iluminación RGB ─────────────────────────────────────────────
