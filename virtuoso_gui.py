@@ -88,6 +88,7 @@ TRANSLATIONS = {
         "Profile Saved": "Perfil Guardado",
         "Error": "Error",
         "⚠️ Low Battery — Virtuoso SE": "⚠️ Batería Baja — Virtuoso SE",
+        "The headset is at {}% battery.": "Los auriculares están al {}% de batería.",
         "Lighting": "Iluminación",
         "Logo": "Logo",
         "Mic": "Micrófono",
@@ -1944,6 +1945,7 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setDesktopFileName("virtuoso-control")
+    app.setApplicationName("Virtuoso Control") # Nombre de la aplicación (Notificaciones).
     apply_theme(app)   # follows the desktop's light/dark preference
 
     gui = VirtuosoGUI()
