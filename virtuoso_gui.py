@@ -1607,6 +1607,14 @@ class VirtuosoGUI(QMainWindow):
 
     # ─── Iluminación RGB ─────────────────────────────────────────────
 
+    # Battery limit constants.
+    BATT_LEVEL_HIGH = 80
+    BATT_LEVEL_MEDIUM = 50
+    BATT_LEVEL_LOW = 20
+
+    # Battery constant for system notification.
+    BATT_LEVEL_NOTIFY_LOW = 15
+
     def choose_color(self):
         color = QColorDialog.getColor(self._current_color, self, _tr("Pick Logo Color"))
         if color.isValid():
@@ -1644,12 +1652,14 @@ class VirtuosoGUI(QMainWindow):
             batt_r, batt_g, batt_b = 0, 0, 0
             if self._last_battery_percent is not None:
                 p = self._last_battery_percent
-                if p >= 80:
-                    batt_g = 255
-                elif p >= 20:
-                    batt_r, batt_g = 255, 255
+                if p >= self.BATT_LEVEL_HIGH:
+                    batt_g = 255                # Green (80%-100%)
+                elif p >= self.BATT_LEVEL_MEDIUM:
+                    batt_r, batt_g = 255, 255   # Yellow (50%-79%)
+                elif p >= self.BATT_LEVEL_LOW:
+                    batt_r, batt_g = 255, 128   # Orange (20%-49%)
                 else:
-                    batt_r = 255
+                    batt_r = 255                # Red (<20%)
 
             # Muted mic goes red, matching iCUE on Windows/macOS. The saved
             # colour is untouched and returns on unmute.
@@ -1824,7 +1834,7 @@ class VirtuosoGUI(QMainWindow):
         if self._hid_connected and self.ctrl._handshake_done:
             # Smart Battery Polling: 
             # If battery is low (<15%) and not physically charging, skip polling to avoid beeps.
-            if self._last_battery_percent is not None and self._last_battery_percent < 15:
+            if self._last_battery_percent is not None and self._last_battery_percent < self.BATT_LEVEL_NOTIFY_LOW:
                 if not self.ctrl.is_usb_charging:
                     # Keep showing low battery, don't query headset
                     return
@@ -1857,13 +1867,15 @@ class VirtuosoGUI(QMainWindow):
         
         # Fill color
         if is_charging:
-            color = QColor(52, 152, 219) # Blue
-        elif percent > 50:
-            color = QColor(46, 204, 113) # Green
-        elif percent > 20:
-            color = QColor(241, 196, 15) # Yellow
+            color = QColor(52, 52, 255) # Blue (Charging)
+        elif percent >= self.BATT_LEVEL_HIGH:
+            color = QColor(46, 204, 113) # Green (80%-100%)
+        elif percent >= self.BATT_LEVEL_MEDIUM:
+            color = QColor(241, 196, 15) # Yellow (50%-79%)
+        elif percent >= self.BATT_LEVEL_LOW:
+            color = QColor(230, 126, 34) # Orange (20%-49%)
         else:
-            color = QColor(231, 76, 60) # Red
+            color = QColor(231, 76, 60)  # Red (<20%)
             
         painter.setBrush(QBrush(color))
         painter.setPen(Qt.PenStyle.NoPen)
@@ -1918,14 +1930,14 @@ class VirtuosoGUI(QMainWindow):
         except (ValueError, IndexError):
             return
 
-        if percent < 15 and not self._low_battery_notified:
+        if percent < self.BATT_LEVEL_NOTIFY_LOW and not self._low_battery_notified:
             self.tray_icon.showMessage(
                 _tr("⚠️ Low Battery — Virtuoso SE"),
                 _tr("The headset is at {}% battery.").format(percent),
                 QSystemTrayIcon.MessageIcon.Warning,
                 10_000)
             self._low_battery_notified = True
-        elif percent >= 20:
+        elif percent >= self.BATT_LEVEL_LOW:
             # Reset flag when it goes up (e.g., charging)
             self._low_battery_notified = False
 
