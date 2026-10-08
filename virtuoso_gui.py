@@ -88,6 +88,7 @@ TRANSLATIONS = {
         "Profile Saved": "Perfil Guardado",
         "Error": "Error",
         "⚠️ Low Battery — Virtuoso SE": "⚠️ Batería Baja — Virtuoso SE",
+        "The headset is at {}% battery. Power saving mode enabled.": "Los auriculares están al {}% de batería. Ahorro de energía activado.",
         "Lighting": "Iluminación",
         "Logo": "Logo",
         "Mic": "Micrófono",
@@ -163,10 +164,18 @@ THEME = dict(PALETTES["dark"])
 
 # ─── Battery limit constants ────────────────────────────────────────
 BATT_LEVEL = {
-    "HIGH": 70,
-    "MEDIUM": 50,
-    "LOW": 20,
+    "HIGH":       70,
+    "MEDIUM":     50,
+    "LOW":        20,
     "NOTIFY_LOW": 15 # For system notification.
+}
+
+# ─── Brightness level limits for LEDs ───────────────────────────────
+POWER_SAVING_BRIGHTNESS = {
+    "RGB_fixed":    0, # % Left and right LEDs.
+    "MIC_fixed":   25, # % Microphone LED.
+    "RGB_max":   0.25, # %/100
+    "MIC_max":   0.50  # %/100
 }
 
 def c(key):
@@ -912,6 +921,11 @@ class VirtuosoGUI(QMainWindow):
         self.mic_button_timer.timeout.connect(self._poll_mic_button)
         self.mic_button_timer.start(150)
 
+        # Timer: low battery status LED blinking
+        self._blink_state = False  # Alternate between True and False
+        self.blink_timer = QTimer()
+        self.blink_timer.timeout.connect(self._toggle_blink_led)
+
         # Connect and apply saved preferences
         self._try_initial_connect()
         self._apply_saved_settings()
@@ -1640,29 +1654,87 @@ class VirtuosoGUI(QMainWindow):
                 elif p >= BATT_LEVEL["LOW"]:
                     batt_r, batt_g = 255, 128   # Orange (20%-49%)
                 else:
-                    batt_r = 255                # Red (<20%)
+                    # INTEGRATED BLINKING LOGIC.
+                    # If the timer is active, alternate between red and off every 0.5s.
+                    if getattr(self, 'blink_timer', None) and self.blink_timer.isActive():
+                        if self._blink_state:
+                            batt_r = 255        # Red
+                        else:
+                            batt_r = 0          # Off
+                    else:
+                        batt_r = 255            # Red (<20%)
 
-            # Muted mic goes red, matching iCUE on Windows/macOS. The saved
-            # colour is untouched and returns on unmute.
-            if self._mic_muted:
-                mic_rgb = (self._mic_mute_color.red(),
-                           self._mic_mute_color.green(),
-                           self._mic_mute_color.blue())
-                mic_brightness = 100
+            # --- POWER SAVING MODE (BATTERY < 15%) ---
+            # If the percentage is below the notification level, set the headsets LEDs brightness to 0%.
+            if self._last_battery_percent is not None and self._last_battery_percent < BATT_LEVEL["NOTIFY_LOW"]:
+
+                # 1. Reducing the headsets LEDs brightness at 0% of its corresponding value.
+                if not getattr(self, '_battery_low_forced_zero', False):
+                    self._brightness_snapshot_at_low = self.rgb_slider.value() # Saving slider value.
+                    self._battery_low_forced_zero = True
+                    self._user_interacted_with_slider = False # Flag to know if user changed the slider
+
+                # Check if the user has moved the slider away from the snapshot value
+                if not getattr(self, '_user_interacted_with_slider', False) and self.rgb_slider.value() != self._brightness_snapshot_at_low:
+                    self._user_interacted_with_slider = True
+
+                #if self.rgb_slider.value() == self._brightness_snapshot_at_low:
+                if not getattr(self, '_user_interacted_with_slider', False):
+                    rgb_brightness = POWER_SAVING_BRIGHTNESS["RGB_fixed"] # 0% of static brightness.
+                else:
+                    rgb_brightness = int(self.rgb_slider.value() * POWER_SAVING_BRIGHTNESS["RGB_max"]) # 25% of the slider value (new 100%).
+
+                # 2. Reducing the microphone brightness to 25% of its corresponding value.
+                # Muted mic goes red, matching iCUE on Windows/macOS. The saved
+                # colour is untouched and returns on unmute.
+                if self._mic_muted:
+                    mic_rgb = (self._mic_mute_color.red(),
+                               self._mic_mute_color.green(),
+                               self._mic_mute_color.blue())
+                    mic_brightness = POWER_SAVING_BRIGHTNESS["MIC_fixed"] # 25% of static brightness.
+                else:
+                    mic_rgb = (self._current_mic_color.red(),
+                               self._current_mic_color.green(),
+                               self._current_mic_color.blue())
+                    mic_brightness = int(self.mic_slider.value() * POWER_SAVING_BRIGHTNESS["MIC_max"]) # 50% of the slider value (new 100%).
+
             else:
-                mic_rgb = (self._current_mic_color.red(),
-                           self._current_mic_color.green(),
-                           self._current_mic_color.blue())
-                mic_brightness = self.mic_slider.value()
+                # Normal behavior if battery is > 15%.
+                # If the battery level rises again (e.g., while charging), clear the flag for the next time.
+                if getattr(self, '_battery_low_forced_zero', False):
+                    self._battery_low_forced_zero = False
+                    self._user_interacted_with_slider = False  # Reset the interaction flag too.
+
+                rgb_brightness = self.rgb_slider.value()
+
+                # Muted mic goes red, matching iCUE on Windows/macOS. The saved
+                # colour is untouched and returns on unmute.
+                if self._mic_muted:
+                    mic_rgb = (self._mic_mute_color.red(),
+                               self._mic_mute_color.green(),
+                               self._mic_mute_color.blue())
+                    mic_brightness = 100
+                else:
+                    mic_rgb = (self._current_mic_color.red(),
+                               self._current_mic_color.green(),
+                               self._current_mic_color.blue())
+                    mic_brightness = self.mic_slider.value()
+            # -----------------------------------------------
 
             self.ctrl.set_all_rgb(
                 (self._current_color.red(), self._current_color.green(), self._current_color.blue()),
-                self.rgb_slider.value(),
+                rgb_brightness,
                 mic_rgb,
                 mic_brightness,
                 (batt_r, batt_g, batt_b),
                 100
             )
+
+    def _toggle_blink_led(self):
+        # Toggles the blinking state and updates the LEDs.
+        self._blink_state = not self._blink_state
+        self.apply_rgb()
+
 
     def save_profile(self, index):
         s = QSettings("VirtuosoControl", "VirtuosoControl")
@@ -1903,7 +1975,7 @@ class VirtuosoGUI(QMainWindow):
         self._refresh_battery_icon()
 
     def _check_low_battery(self, battery_str):
-        """Shows desktop notification if battery < 15%."""
+        """Shows desktop notification if battery < 15% and controls blinking."""
         try:
             percent = int(battery_str.split("%")[0])
             self._last_battery_percent = percent
@@ -1911,10 +1983,17 @@ class VirtuosoGUI(QMainWindow):
         except (ValueError, IndexError):
             return
 
+        if percent < BATT_LEVEL["LOW"]:
+            if not self.blink_timer.isActive():
+                self.blink_timer.start(500) # Blinking 0.5s
+        else:
+            if self.blink_timer.isActive():
+                self.blink_timer.stop() # Stopping Blinking
+
         if percent < BATT_LEVEL["NOTIFY_LOW"] and not self._low_battery_notified:
             self.tray_icon.showMessage(
                 _tr("⚠️ Low Battery — Virtuoso SE"),
-                _tr("The headset is at {}% battery.").format(percent),
+                _tr("The headset is at {}% battery. Power saving mode enabled.").format(percent),
                 QSystemTrayIcon.MessageIcon.Warning,
                 10_000)
             self._low_battery_notified = True
