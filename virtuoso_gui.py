@@ -19,12 +19,13 @@ import time
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QSlider, QLabel,
                              QFrame, QSystemTrayIcon, QMenu, QCheckBox,
-                             QButtonGroup, QColorDialog, QDialog,
+                             QButtonGroup, QColorDialog, QDialog, QMessageBox,
                              QComboBox, QAbstractButton, QToolButton, QSizePolicy)
 from PyQt6.QtCore import (Qt, QTimer, QSettings, QRectF, QLineF, QSize,
                           QPointF)
 from PyQt6.QtGui import (QIcon, QAction, QColor, QPixmap, QPainter, QBrush, QPen,
                          QFont, QPalette, QPolygonF)
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from virtuoso_control import VirtuosoController
 
 TRANSLATIONS = {
@@ -2057,6 +2058,30 @@ class VirtuosoGUI(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+
+    # --- Control de Instancia Única ---
+    socket_name = "VirtuosoControl_SingleInstance_Socket"
+    socket = QLocalSocket()
+    socket.connectToServer(socket_name)
+
+    # Si se conecta con éxito, ya hay otra instancia ejecutándose
+    if socket.waitForConnected(500):
+        # Crear cuadro de diálogo de advertencia
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Virtuoso Control")
+        msg.setText(_tr("The application is already running."))
+        msg.setInformativeText(_tr("Virtuoso Control is already running in the background or in the system tray."))
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
+        sys.exit(0) # Cerrar esta nueva instancia de inmediato
+
+    # Si no hay otra instancia, creamos el servidor local para bloquear futuras ejecuciones
+    app.local_server = QLocalServer()
+    app.local_server.listen(socket_name)
+    # ----------------------------------
+
     app.setQuitOnLastWindowClosed(False)
     app.setDesktopFileName("virtuoso-control")
     app.setApplicationName("Virtuoso Control") # Nombre de la aplicación (Notificaciones).
