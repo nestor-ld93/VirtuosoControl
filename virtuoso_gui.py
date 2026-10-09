@@ -104,6 +104,8 @@ TRANSLATIONS = {
         "Brightness": "Brillo",
         "Method": "Método",
         "Status": "Estado",
+        "The application is already running.": "La aplicación ya está en ejecución.",
+        "Virtuoso Control is already running in the background or in the system tray.": "Virtuoso Control ya está activo en segundo plano o en la bandeja del sistema.",
     }
 }
 
