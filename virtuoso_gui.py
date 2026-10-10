@@ -88,6 +88,8 @@ TRANSLATIONS = {
         "Profile Saved": "Perfil Guardado",
         "Error": "Error",
         "⚠️ Low Battery — Virtuoso SE": "⚠️ Batería Baja — Virtuoso SE",
+        "⚠️ Very Low Battery — Virtuoso SE": "⚠️ Batería Muy Baja — Virtuoso SE",
+        "The headset is at {}% battery.": "Los auriculares están al {}% de batería.",
         "The headset is at {}% battery. Power saving mode enabled.": "Los auriculares están al {}% de batería. Ahorro de energía activado.",
         "Lighting": "Iluminación",
         "Logo": "Logo",
@@ -871,6 +873,7 @@ class VirtuosoGUI(QMainWindow):
         super().__init__()
         self.ctrl = VirtuosoController()
         self._hid_connected = False
+        self._low_battery_notified_0 = False
         self._low_battery_notified = False
         self._mic_muted = False  # mirrors the headset's reported mute state
         self._quitting = False
@@ -1655,14 +1658,17 @@ class VirtuosoGUI(QMainWindow):
                     batt_r, batt_g = 255, 128   # Orange (20%-49%)
                 else:
                     # INTEGRATED BLINKING LOGIC.
-                    # If the timer is active, alternate between red and off every 0.5s.
-                    if getattr(self, 'blink_timer', None) and self.blink_timer.isActive():
+                    # If the cable is connected, we ignore the blinking and force a solid red.
+                    if self._last_charging:
+                        batt_r = 255            # Red (<20%) fixed
+                    # If it's disconnected, we allow normal blinking logic.
+                    elif self.blink_timer.isActive():
                         if self._blink_state:
                             batt_r = 255        # Red
                         else:
                             batt_r = 0          # Off
                     else:
-                        batt_r = 255            # Red (<20%)
+                        batt_r = 255            # Red (<20%) fixed
 
             # --- POWER SAVING MODE (BATTERY < 15%) ---
             # If the percentage is below the notification level, set the headsets LEDs brightness to 0%.
@@ -1979,27 +1985,43 @@ class VirtuosoGUI(QMainWindow):
         try:
             percent = int(battery_str.split("%")[0])
             self._last_battery_percent = percent
-            self.apply_rgb()  # Update LED battery state
+            #self.apply_rgb()  # Moved to the end so that the blinking logic works correctly.
         except (ValueError, IndexError):
             return
 
-        if percent < BATT_LEVEL["LOW"]:
+        # --- Alert 1: Low Battery (19%) ---
+        if not self._last_charging and BATT_LEVEL["NOTIFY_LOW"] <= percent < BATT_LEVEL["LOW"] and not self._low_battery_notified_0:
+            self.tray_icon.showMessage(
+                _tr("⚠️ Low Battery — Virtuoso SE"),
+                _tr("The headset is at {}% battery.").format(percent),
+                QSystemTrayIcon.MessageIcon.Warning,
+                10_000)
+            self._low_battery_notified_0 = True
+
+        # --- Blink Timer ---
+        if not self._last_charging and percent < BATT_LEVEL["LOW"]:
             if not self.blink_timer.isActive():
                 self.blink_timer.start(500) # Blinking 0.5s
         else:
             if self.blink_timer.isActive():
                 self.blink_timer.stop() # Stopping Blinking
 
-        if percent < BATT_LEVEL["NOTIFY_LOW"] and not self._low_battery_notified:
+        # --- Alert 2: Very Low Battery (14%) ---
+        if not self._last_charging and percent < BATT_LEVEL["NOTIFY_LOW"] and not self._low_battery_notified:
             self.tray_icon.showMessage(
-                _tr("⚠️ Low Battery — Virtuoso SE"),
+                _tr("⚠️ Very Low Battery — Virtuoso SE"),
                 _tr("The headset is at {}% battery. Power saving mode enabled.").format(percent),
                 QSystemTrayIcon.MessageIcon.Warning,
                 10_000)
             self._low_battery_notified = True
-        elif percent >= BATT_LEVEL["LOW"]:
-            # Reset flag when it goes up (e.g., charging)
+
+        # --- Resetting the flags ---
+        if self._last_charging or percent >= BATT_LEVEL["LOW"]:
+            # Reset flags when it goes up (e.g., charging)
+            self._low_battery_notified_0 = False
             self._low_battery_notified = False
+
+        self.apply_rgb() # Update LED battery state
 
     # ─── Lifecycle ───────────────────────────────────────────────────
 
