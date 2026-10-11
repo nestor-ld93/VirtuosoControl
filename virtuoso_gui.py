@@ -15,14 +15,13 @@ Features:
 import sys
 import os
 import math
-import time
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QSlider, QLabel,
                              QFrame, QSystemTrayIcon, QMenu, QCheckBox,
                              QButtonGroup, QColorDialog, QDialog, QMessageBox,
                              QComboBox, QAbstractButton, QToolButton, QSizePolicy)
 from PyQt6.QtCore import (Qt, QTimer, QSettings, QRectF, QLineF, QSize,
-                          QPointF)
+                          QPointF, QThread, QCoreApplication)
 from PyQt6.QtGui import (QIcon, QAction, QColor, QPixmap, QPainter, QBrush, QPen,
                          QFont, QPalette, QPolygonF)
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
@@ -1615,7 +1614,11 @@ class VirtuosoGUI(QMainWindow):
             self.apply_rgb()
 
             # 3. Allow a brief pause (100ms) for the dongle to process the previous steps.
-            time.sleep(0.1)
+            # "time.sleep(0.1)" for Qt's native sleep time.
+            # This gives the dongle 100ms but processes blink events in parallel.
+            #time.sleep(0.1)
+            QCoreApplication.processEvents()
+            QThread.msleep(100)
 
             # 4. Robust verification (up to 3 attempts if the dongle is busy)
             headset_alive = False
@@ -1624,7 +1627,9 @@ class VirtuosoGUI(QMainWindow):
                     headset_alive = True
                     break
                 # If it returned a false negative, we wait another 150ms before querying again.
-                time.sleep(0.15)
+                #time.sleep(0.15)
+                QCoreApplication.processEvents()
+                QThread.msleep(150)
 
             # If it still returns "False" after the 3 spaced-out attempts, then it has indeed disconnected.
             if not headset_alive:
